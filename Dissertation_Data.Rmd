@@ -1,0 +1,264 @@
+---
+title: "Testing"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-07-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+```{r}
+library(dbplyr)
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+qData <- read.csv("Effect of Positive copy.csv")
+pData <- read_csv("Prolific id copy.csv")
+demographic <- read.csv("Demographic_Data.csv")
+```
+
+```{r}
+cmbndData <- merge(pData, qData, by = "Response_Id", all = TRUE)
+cmbndData <- merge(cmbndData, demographic, by = "prolificid", all = TRUE)
+```
+
+```{r}
+#Cleaning data
+cmbndData <- cmbndData[complete.cases(cmbndData$Response_Id), ] #removing rows with missing values
+cmbndData <- cmbndData[complete.cases(cmbndData$prolificid), ]#removing rows with missing values
+cmbndData <- unique(cmbndData) #removing duplicates
+newData <- cmbndData[, c("prolificid","Describe.memories","Describe.memories.1","Q124","Q125","Q126", "Q127", "Q128", "Q129", "Q130","Q131","Q132","Q133","Q134","Q135","Q136","Q137","Q138","Q157","Q140","Q141")]
+newData_2 <- cmbndData[, c("prolificid","Q1.1","Q2.1","Q3.2","Q114","Q5.1","Current.mood","Age","Sex","Nationality","Ethnicity.simplified","Country.of.residence","Student.status","Employment.status")]
+newData <- merge(newData, newData_2, by = "prolificid", all = TRUE)
+```
+
+```{r}
+#Renaming & Reorganizing
+newData <- newData %>% rename(Happy_Condition = Describe.memories) #renaming columns
+newData <- newData %>% rename(Neutral_Condition = Describe.memories.1) #renaming columns
+newData$Happy_Condition <- ifelse(nzchar(newData$Happy_Condition), 1, 2) #If column has text then change it to 1, if not then change the value to 2. Missing value in this columns means the participant was in Neutral condition. 
+#1 is Happiness and #2 is Neutral
+newData <- newData %>% rename(Condition = Happy_Condition)
+newData <- subset(newData, select = -Neutral_Condition) #Deleting Neutral Condition column
+newData <- newData %>% rename(Q1 = Q124, Q2 = Q125, Q3 = Q126, Q4 = Q127, Q5 = Q128,Q6 = Q129, Q7 = Q130, Q8 = Q131, Q9 = Q132 , Q10 = Q133 , Q11 = Q134, Q12 = Q135, Q13 = Q136, Q14 = Q137, Q15 = Q138, Q16 = Q157, Q17 = Q140, Q18 = Q141)
+newData <- newData %>% rename(G.1 = Q1.1, G.2 = Q2.1, G.3 = Q3.2, G.4 = Q114, G.5 = Q5.1)
+```
+
+```{r}
+#Recoding Emotion Managament Test Scores
+#Each correct answer receives 2 points
+#Total score is out of 36
+#if correct answer then participant receives a score of 2, or else participant receives 0
+recode_score <- function(x, correct_answer) {
+  ifelse(grepl(correct_answer, x), "2", "0")
+}
+
+columns_to_process <- c("Q1", "Q2", "Q3", "Q4", "Q5","Q6", "Q7", "Q8", "Q9", "Q10", "Q11", "Q12","Q13","Q14","Q15", "Q16", "Q17", "Q18")
+
+
+correct_answers <- c("Contact Wai-Hin and arrange to catch up but also make friends with her replacement.","Carefully consider his options and discuss it with his family.", "Make an effort to talk to people and be friendly himself.", "He should make the effort to contact them, but also try to meet people in his new city.","Spend time listening and getting involved again.","Set up a system for staying in touch, like weekly phone calls or emails.", "Speak to other family to calm herself and find out what is happening, then visit the hospital.", "Understand that relationships change, but keep calling him from time to time.", "Tell her sister-in-law these comments upset her.", "Find out what is happening and discuss his concerns with his family.", "Talk to her workmates, try to create social contacts and make friends.","Think that she has been successful in the past and this client being difficult is not her fault.", "Invite Blair again, maybe rescheduling for another time.", 
+"Make sure she keeps in contact through email, phone or letter writing.","Document the lack of resources in her progress report.", 
+"Talk to a doctor about what the normal rates of development are.", 
+"Find out if there is some reasonable explanation for the shift changes.", "Understand that people change, so move on, but remember the good times.")
+
+#Creating a loop
+for (i in seq_along(columns_to_process)) {
+  col <- columns_to_process[i]
+  correct_answer <- correct_answers[i]
+  newData[[col]] <- recode_score(newData[[col]], correct_answer)
+}
+```
+
+```{r}
+#Creating new column with aggregate score on Emotion Management Test
+EM_scores <- newData %>% select(prolificid, Condition, c(Q1:Q18))
+for (col in 3:20) {
+  EM_scores[[col]] <- as.numeric(EM_scores[[col]])
+}
+EM_scores <- EM_scores %>%
+  rowwise() %>%
+  mutate(Total_score = sum(c_across(3:20), na.rm = TRUE)) #Calculating the total score for each participant on the test 
+
+#Calculating average score of each group
+EM_scores <- EM_scores %>% select(Condition, Total_score, prolificid)
+EM_avg <- EM_scores %>% group_by(Condition) 
+EM_avg_wide <- EM_avg %>% pivot_wider(names_from = "Condition", values_from = "Total_score")
+EM_avg_wide <- EM_avg_wide %>% rename(Happy = `1`, Neutral = `2`)
+Happy_mean <- mean(EM_avg_wide$Happy, na.rm = TRUE)
+Happy_range <- range(EM_avg_wide$Happy, na.rm = TRUE)
+Neutral_range <- range(EM_avg_wide$Neutral, na.rm = TRUE)
+Neutral_mean <- mean(EM_avg_wide$Neutral, na.rm = TRUE)
+happy_sd <- sd(EM_avg_wide$Happy, na.rm = TRUE)
+neutral_sd <- sd(EM_avg_wide$Neutral, na.rm = TRUE)
+
+
+#Performing t.test
+results <- t.test(EM_avg_wide$Happy, EM_avg_wide$Neutral)
+view(results)
+print(results)
+df <- results$parameter
+print(df)
+#Not significant
+```
+
+```{r}
+#Converting GMAT test scores
+
+newData$G.1 <-ifelse(grepl("Participation in art courses increases students creative thinking in their science and technology courses.", newData$G.1),"2","0")
+
+newData$G.2 <- ifelse(grepl("£117.00",newData$G.2), "2","0")
+
+newData$G.3 <- ifelse(grepl("1-C, 2-A, 3-D, 4-B", newData$G.3), "2", "0")
+
+newData$G.4 <- ifelse(grepl("S", newData$G.4), "2", "0")
+
+
+correct_responses <- c("NBZSIEW", "IEWZNBS", "IEWSNBZ", "I E W Z S N B", "I, e, w, s, z, n, b", "IEWSZBN", "I N W E Z S B","IEWBNSZ", "N B Z S I E W", "	
+IWENBSZ", "IEWNBZS", "Z, B, N,W, I, E, S","N, B, S, Z, I, E, W","I E W N B Z S","I, E,W,Z,S,N,B","N Z B S W I E","IEWNBZS")
+
+newData$G.5 <- ifelse(grepl(paste(correct_responses, collapse = "|"), newData$G.5), 2, 0)
+
+newData$G.1 <- as.numeric(newData$G.1)
+newData$G.2 <- as.numeric(newData$G.2)
+newData$G.3 <- as.numeric(newData$G.3)
+newData$G.4 <- as.numeric(newData$G.4)
+newData$G.5 <- as.numeric(newData$G.5)
+
+newData <- newData %>% rowwise() %>% mutate(Gmat_score = sum(c_across(21:25), na.rm = TRUE))
+```
+
+```{r}
+#Newdata frames with Aggregate scores
+final_df <- newData %>% select(prolificid, Condition, Current.mood, Age, Sex, Nationality, Ethnicity.simplified, Country.of.residence, Student.status, Employment.status, Gmat_score)
+
+final_df <- newData <- merge(EM_scores,final_df, by = c("prolificid", "Condition"), all = TRUE)
+```
+
+
+```{r}
+#Checking MIP Efficacy
+MIP <- final_df %>% select(Condition, Current.mood)
+
+MIP <- MIP %>% mutate(CM_numeric = case_when(Current.mood == "Not at all happy" ~ 1, Current.mood == "Not very happy" ~ 2, Current.mood == "Neither happy nor unhappy" ~ 3, Current.mood == "Somewhat happy" ~ 4, Current.mood == "Extremely happy" ~ 5 ))
+
+MIP_H <- MIP$CM_numeric[MIP$Condition == "1"]
+MIP_N <- MIP$CM_numeric[MIP$Condition == "2"]
+
+t.test_MIP <- t.test(MIP_H, MIP_N)
+print(t.test_MIP)
+view(t.test_MIP)
+
+
+```
+
+```{r}
+#Calculating differences in GMAT scores
+
+GMAT_scores <-  final_df %>% select(Condition, Gmat_score, prolificid)
+GMAT_scores <- GMAT_scores %>% group_by(Condition)
+GMAT_scores <- GMAT_scores %>% pivot_wider(names_from = "Condition", values_from = "Gmat_score")
+GMAT_scores <- GMAT_scores %>% rename(Happy = `1`, Neutral = `2`)
+results_Gmat <- t.test(GMAT_scores$Happy, GMAT_scores$Neutral)
+view(results_Gmat)
+GH_mean <- mean(GMAT_scores$Happy, na.rm = TRUE)
+GN_mean <- mean(GMAT_scores$Neutral, na.rm = TRUE)
+GH_sd <-  sd(GMAT_scores$Happy, na.rm = TRUE)
+GN_sd <- sd(GMAT_scores$Neutral, na.rm = TRUE)
+
+#not significant - no difference in scores of people in the happy vs. neutral condition
+```
+
+```{r}
+#Happiness Scores
+Happiness_score <- final_df %>% filter(Condition == "1")  
+Happiness_counts <- table(Happiness_score$Current.mood)
+print(Happiness_counts)
+Neutral_score <- final_df %>% filter(Condition == "2")
+Neutral_counts <- table(Neutral_score$Current.mood)
+print(Neutral_counts)
+#Compare EM scores of participants that reported feeling extremely happy in Condition 1, to Neither Happy or Unhappy in Neutral Condition
+Current_Mood <- final_df %>% select(Condition, Current.mood, Total_score)
+HP_hpymood <- Current_Mood %>% filter(Condition == 1, Current.mood == "Extremely happy") %>% select(Current.mood, Total_score)
+NP_NtrlMood <- Current_Mood %>% filter(Condition == 2, Current.mood == "Neither happy nor unhappy") %>% select(Current.mood, Total_score)
+#Comparison via t-test
+results_2 <- t.test(HP_hpymood$Total_score, NP_NtrlMood$Total_score)
+mean_HP <- mean(HP_hpymood$Total_score, na.rm = TRUE)
+mean_NP <- mean(NP_NtrlMood$Total_score, na.rm = TRUE)
+sd_HP <- sd(HP_hpymood$Total_score, na.rm = TRUE)
+sd_NP <- sd(NP_NtrlMood$Total_score, na.rm = TRUE)
+print(results_2)
+view(results_2)
+#No difference between people in Happiness condition that reported feeling happy later on and those in Neutral Condition who reported feeling nor happy or unhappy. 
+```
+
+```{r}
+##Demographic Data Analysis
+gender_counts <- table(final_df$Sex) #Gender
+ethnicity_counts <- table(final_df$Ethnicity.simplified) #Ethnicity
+Nationality_counts <- table(final_df$Nationality) #Nationality
+Residency_counts <- table(final_df$Country.of.residence) #Residency
+Student_counts <- table(final_df$Student.status) #Students
+
+print(gender_counts)
+print(ethnicity_counts)
+print(Nationality_counts)
+print(Residency_counts)
+print(Student_counts)
+
+#Analysing Gender Differences
+Gender <- final_df %>% select(Sex, Condition, Total_score,prolificid) 
+Gender_H <- Gender %>% filter(Condition == "1")  
+Gender_H <- subset(Gender_H, select =  -2)
+Gender_H <- Gender_H %>% pivot_wider(names_from = "Sex", values_from = "Total_score")
+results_G <- t.test(Gender_H$Female, Gender_H$Male)
+
+view(results_G)
+print(results_G$parameter)
+
+Gender_N <- Gender %>% filter(Condition == "2") 
+Gender_N <- subset(Gender_N, select =  -2)
+Gender_N <- Gender_N %>% pivot_wider(names_from = "Sex", values_from = "Total_score")
+results_G_N <- t.test(Gender_N$Female, Gender_N$Male)
+mean_gender <- t.test(Gender_H$Female,Gender_H$Male)
+view(mean_gender)
+view(results_G_N)
+FH_mean <- mean(Gender_H$Female, na.rm = TRUE)
+MH_mean <- mean(Gender_H$Male, na.rm = TRUE)
+FH_sd <- sd(Gender_H$Female, na.rm = TRUE)
+MH_sd <- sd(Gender_H$Male, na.rm = TRUE)
+
+
+#Analysing age differences
+age_r <-  lm(Total_score ~ Age,final_df)
+summary(age_r)
+
+```
+
+
+```{r}
+#Difference in scores in women in experimental group vs. control group
+fvf <- t.test(Gender_H$Female,Gender_N$Female)
+happy_f_mean <- mean(Gender_H$Female, na.rm = TRUE)
+neutral_f_mean <- mean(Gender_N$Female, na.rm = TRUE)
+mvm <- t.test(Gender_H$Male,Gender_N$Male)
+view(mvm)
+view(fvf)
+```
+
+
